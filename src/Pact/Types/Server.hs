@@ -39,11 +39,11 @@ module Pact.Types.Server
   ) where
 
 import Control.Applicative
-import Control.Concurrent.MVar
+import Control.Concurrent.STM
+import Control.Concurrent
 import Control.Exception.Safe
 import Control.Lens
 import Control.Monad.Reader
-import Control.Concurrent.Chan
 import Data.Maybe
 import Data.String
 import Data.ByteString (ByteString)
@@ -102,25 +102,40 @@ throwCmdEx :: MonadThrow m => String -> m a
 throwCmdEx = throw . CommandException
 
 
-newtype InboundPactChan = InboundPactChan (Chan Inbound)
-newtype HistoryChannel = HistoryChannel (Chan History)
+newtype InboundPactChan = InboundPactChan (TBQueue Inbound)
+newtype HistoryChannel = HistoryChannel (TBQueue History)
 newtype ReplayFromDisk = ReplayFromDisk (MVar [Command ByteString])
 
-initChans :: IO (InboundPactChan,HistoryChannel)
-initChans = (,) <$> (InboundPactChan <$> newChan)
-                <*> (HistoryChannel <$> newChan)
+initChansSTM :: STM (InboundPactChan, HistoryChannel)
+initChansSTM = (,) <$> (InboundPactChan <$> newTBQueue 10)
+                <*> (HistoryChannel <$> newTBQueue 10)
 
-writeInbound :: InboundPactChan -> Inbound -> IO ()
-writeInbound (InboundPactChan c) = writeChan c
+initChans :: IO (InboundPactChan, HistoryChannel) 
+initChans  = atomically initChansSTM 
 
-readInbound :: InboundPactChan -> IO Inbound
-readInbound (InboundPactChan c) = readChan c
+writeInboundSTM :: InboundPactChan -> Inbound -> STM ()
+writeInboundSTM (InboundPactChan c) = writeTBQueue c
 
-readHistory :: HistoryChannel -> IO History
-readHistory (HistoryChannel c) = readChan c
+writeInbound :: InboundPactChan -> Inbound -> IO () 
+writeInbound chan inbound = atomically $ writeInboundSTM chan inbound
 
-writeHistory :: HistoryChannel -> History -> IO ()
-writeHistory (HistoryChannel c) h = writeChan c h
+readInboundSTM :: InboundPactChan -> STM Inbound
+readInboundSTM (InboundPactChan c) = readTBQueue c
+
+readInbound :: InboundPactChan -> IO Inbound 
+readInbound chan = atomically (readInboundSTM chan)
+
+readHistorySTM :: HistoryChannel -> STM History
+readHistorySTM (HistoryChannel c) = readTBQueue c
+
+readHistory :: HistoryChannel -> IO History 
+readHistory chan = atomically $ readHistorySTM chan
+
+writeHistorySTM :: HistoryChannel -> History -> STM ()
+writeHistorySTM (HistoryChannel c) h = writeTBQueue c h
+
+writeHistory :: HistoryChannel -> History -> IO () 
+writeHistory aChannel history = atomically $ writeHistorySTM aChannel history
 
 newtype ExistenceResult = ExistenceResult
   { rksThatAlreadyExist :: HashSet RequestKey
