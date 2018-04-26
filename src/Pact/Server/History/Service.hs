@@ -63,9 +63,8 @@ debug s = do
   liftIO $! dbg $ "[history] " ++ s
 
 setupPersistence :: (String -> IO ()) -> Maybe FilePath -> ReplayFromDisk -> IO PersistenceSystem
-setupPersistence dbg Nothing (ReplayFromDisk rp) = do
+setupPersistence dbg Nothing (ReplayFromDisk _) = do
   dbg "[history] Persistence Disabled"
-  --putMVar rp [] -- if there's no replays, we still need to unblock the cmd thread
   return $ InMemory HashMap.empty
 setupPersistence dbg (Just dbPath') (ReplayFromDisk rp) = do
   let dbfile = dbPath' ++ "/commands.sqlite"

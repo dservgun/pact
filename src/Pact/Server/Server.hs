@@ -25,7 +25,6 @@ import Control.Exception
 
 import Data.Aeson
 import qualified Data.Yaml as Y
-import Data.ByteString as ByteString
 import qualified Data.ByteString.Char8 as B8
 
 import qualified Data.HashMap.Strict as HashMap
