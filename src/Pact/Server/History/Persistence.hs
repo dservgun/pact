@@ -13,7 +13,6 @@ module Pact.Server.History.Persistence
 
 
 import Control.Monad
-
 import qualified Data.Text as T
 import qualified Data.Aeson as A
 import Data.Text.Encoding (encodeUtf8)

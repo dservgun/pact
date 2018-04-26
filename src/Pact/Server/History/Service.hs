@@ -74,7 +74,7 @@ setupPersistence dbg (Just dbPath') (ReplayFromDisk rp) = do
   when dbExists $ do
     replayFromDisk' <- DB.selectAllCommands conn
     dbg "[history] Replaying from disk"
-    mapM_ (\r -> atomically (writeTBQueue rp r)) replayFromDisk'
+    mapM_ (atomically . writeTBQueue rp) replayFromDisk'
   return OnDisk { incompleteRequestKeys = HashMap.empty
                 , dbConn = conn }
 
