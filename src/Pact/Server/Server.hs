@@ -92,12 +92,11 @@ initFastLogger = do
 
 drainQueue :: TBQueue a -> [a] -> STM [a]
 drainQueue aQueue aList = do 
-  n <- readTBQueue aQueue
   empty <- isEmptyTBQueue aQueue
   if empty then
     return aList 
-  else
-    drainQueue aQueue (n : aList)
+  else 
+    readTBQueue aQueue >>= \n -> drainQueue aQueue (n : aList)
 
 startCmdThread :: CommandConfig -> InboundPactChan -> HistoryChannel -> ReplayFromDisk -> (String -> IO ()) -> IO ()
 startCmdThread cmdConfig inChan histChan (ReplayFromDisk rp) debugFn = do
@@ -107,12 +106,11 @@ startCmdThread cmdConfig inChan histChan (ReplayFromDisk rp) debugFn = do
     empty <- liftIO . atomically $ isEmptyTBQueue rp
     when empty $ liftIO $ debugFn "[disk replay]: No replay found"
     replayedCommands <- liftIO $ atomically $ drainQueue rp [] 
-    unless (False) $ do
-      forM_ replayedCommands $ \cmd -> do
-        liftIO $ debugFn $ "[disk replay]: replaying => " ++ show cmd
-        txid <- state (\i -> (i,succ i))
-        liftIO $ _ceiApplyCmd (Transactional txid) cmd
-        -- NB: we don't want to update history with the results from the replay
+    forM_ replayedCommands $ \cmd -> do
+      liftIO $ debugFn $ "[disk replay]: replaying => " ++ show cmd
+      txid <- state (\i -> (i,succ i))
+      liftIO $ _ceiApplyCmd (Transactional txid) cmd
+      -- NB: we don't want to update history with the results from the replay
     forever $ do
       -- now we're prepared, so start taking new entries
       inb <- liftIO $ readInbound inChan
