@@ -13,6 +13,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.RWS.Strict
 import Control.Concurrent.MVar
+import Control.Concurrent.STM
 import System.Directory
 
 import Data.ByteString (ByteString)
@@ -64,7 +65,7 @@ debug s = do
 setupPersistence :: (String -> IO ()) -> Maybe FilePath -> ReplayFromDisk -> IO PersistenceSystem
 setupPersistence dbg Nothing (ReplayFromDisk rp) = do
   dbg "[history] Persistence Disabled"
-  putMVar rp [] -- if there's no replays, we still need to unblock the cmd thread
+  --putMVar rp [] -- if there's no replays, we still need to unblock the cmd thread
   return $ InMemory HashMap.empty
 setupPersistence dbg (Just dbPath') (ReplayFromDisk rp) = do
   let dbfile = dbPath' ++ "/commands.sqlite"
@@ -74,9 +75,7 @@ setupPersistence dbg (Just dbPath') (ReplayFromDisk rp) = do
   when dbExists $ do
     replayFromDisk' <- DB.selectAllCommands conn
     dbg "[history] Replaying from disk"
-    putMVar rp replayFromDisk'
-  unless dbExists $
-    putMVar rp [] -- if there's no replays, we still need to unblock the cmd thread
+    mapM_ (\r -> atomically (writeTBQueue rp r)) replayFromDisk'
   return OnDisk { incompleteRequestKeys = HashMap.empty
                 , dbConn = conn }
 

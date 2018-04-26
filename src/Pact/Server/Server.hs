@@ -18,12 +18,14 @@ module Pact.Server.Server
 
 import Control.Concurrent
 import Control.Concurrent.Async (async, link)
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.State
 import Control.Exception
 
 import Data.Aeson
 import qualified Data.Yaml as Y
+import Data.ByteString as ByteString
 import qualified Data.ByteString.Char8 as B8
 
 import qualified Data.HashMap.Strict as HashMap
@@ -69,11 +71,11 @@ serve :: FilePath -> IO ()
 serve configFile = do
   Config {..} <- Y.decodeFileEither configFile >>= \case
     Left e -> do
-      putStrLn usage
+      Prelude.putStrLn usage
       throwIO (userError ("Error loading config file: " ++ show e))
     Right v -> return v
   (inC,histC) <- initChans
-  replayFromDisk' <- ReplayFromDisk <$> newEmptyMVar
+  replayFromDisk' <- atomically (ReplayFromDisk <$> newTBQueue 500)
   debugFn <- if _verbose then initFastLogger else return (return . const ())
   let cmdConfig = CommandConfig
           (fmap (\pd -> SQLiteConfig (pd ++ "/pact.sqlite") _pragmas) _persistDir)
@@ -89,15 +91,25 @@ initFastLogger = do
   (tfl,_) <- newTimedFastLogger tc (LogStdout 1000)
   return $ \m -> tfl $ \t -> toLogStr t <> " " <> toLogStr (B8.pack m) <> "\n"
 
+drainQueue :: TBQueue a -> [a] -> STM [a]
+drainQueue aQueue aList = do 
+  n <- readTBQueue aQueue
+  empty <- isEmptyTBQueue aQueue
+  if empty then
+    return aList 
+  else
+    drainQueue aQueue (n : aList)
+
 startCmdThread :: CommandConfig -> InboundPactChan -> HistoryChannel -> ReplayFromDisk -> (String -> IO ()) -> IO ()
 startCmdThread cmdConfig inChan histChan (ReplayFromDisk rp) debugFn = do
   CommandExecInterface {..} <- initPactService cmdConfig (initLoggers debugFn doLog def)
   void $ (`runStateT` (0 :: TxId)) $ do
     -- we wait for the history service to light up, possibly giving us backups from disk to replay
-    replayFromDisk' <- liftIO $ takeMVar rp
-    when (null replayFromDisk') $ liftIO $ debugFn "[disk replay]: No replay found"
-    unless (null replayFromDisk') $ do
-      forM_ replayFromDisk' $ \cmd -> do
+    empty <- liftIO . atomically $ isEmptyTBQueue rp
+    when empty $ liftIO $ debugFn "[disk replay]: No replay found"
+    replayedCommands <- liftIO $ atomically $ drainQueue rp [] 
+    unless (False) $ do
+      forM_ replayedCommands $ \cmd -> do
         liftIO $ debugFn $ "[disk replay]: replaying => " ++ show cmd
         txid <- state (\i -> (i,succ i))
         liftIO $ _ceiApplyCmd (Transactional txid) cmd
@@ -107,7 +119,7 @@ startCmdThread cmdConfig inChan histChan (ReplayFromDisk rp) debugFn = do
       inb <- liftIO $ readInbound inChan
       case inb of
         TxCmds cmds -> do
-          liftIO $ debugFn $ "[cmd]: executing " ++ show (length cmds) ++ " command(s)"
+          liftIO $ debugFn $ "[cmd]: executing " ++ show (Prelude.length cmds) ++ " command(s)"
           resps <- forM cmds $ \cmd -> do
             txid <- state (\i -> (i,succ i))
             liftIO $ _ceiApplyCmd (Transactional txid) cmd

@@ -104,7 +104,7 @@ throwCmdEx = throw . CommandException
 
 newtype InboundPactChan = InboundPactChan (TBQueue Inbound)
 newtype HistoryChannel = HistoryChannel (TBQueue History)
-newtype ReplayFromDisk = ReplayFromDisk (MVar [Command ByteString])
+newtype ReplayFromDisk = ReplayFromDisk (TBQueue (Command ByteString))
 
 initChansSTM :: STM (InboundPactChan, HistoryChannel)
 initChansSTM = (,) <$> (InboundPactChan <$> newTBQueue 10)
